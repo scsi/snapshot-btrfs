@@ -14,7 +14,7 @@ Usage: ./snapshot-btrfs command [options] [name...]
     -k, --keep=NUM     Keep NUM recent snapshots and destroy older snapshots.
     -l, --label=LAB    LAB is usually 'hourly', 'daily', or 'monthly' (default
                        is 'regular').
-    -p, --prefix=PRE   PRE is 'btrfs-auto-snap' by default.
+    -p, --prefix=PRE   PRE is 'snap' by default.
     -e, --name         Snapshot name. If specified, -l and -p are overridden
                        and --keep is not considered.
     -q, --quiet        Suppress warnings and notices at the console.
