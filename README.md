@@ -1,7 +1,13 @@
 snapshot-btrfs
 ==============
 
-snapshot tool for btrfs
+snapshot-btrfs is a tool offer btrfser eailyer way to do daily snapshot work. It's merges some code and ideal from  https://github.com/mk01/btrfs-auto-snapshot. But they use different base way to manage snapshot.
+
+snapshot-btrfs only focus on those btrfs subvolumn which currently mount on system. Eeach subvolumn has a directory .btrfs to save individual setting and snapshot. For management reason, it create readonly snapshot to prevent careless mody to snapsot. Before auto-snapshot command work. You moust run mark-auto to tell snapshot-btrffs to incldue this mount point when doing auto-snapshot.
+
+Just like btrfs-autosnapshot and zfs-autosnapshot, It use crontab to invoke program for daily auto snapshot. Different crontab implement has little different from setting and working. You should check if snapshot-btrfs work currently for your system or do some fix to snapshot-btrfs.cron to suit your system.
+
+
 Usage: ./snapshot-btrfs command [options] [name...]
 
     command            Is one of 
