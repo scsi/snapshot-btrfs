@@ -2,7 +2,7 @@ snapshot-btrfs
 ==============
 
 snapshot tool for btrfs
-Usage: ./snapshot-btrfs command [options] <'//' | name [name...]>
+Usage: ./snapshot-btrfs command [options] [name...]
 
     command            Is one of 
                              auto-snapshot, snapshot ,delete-snapshot,clear-snapshot
@@ -21,4 +21,4 @@ Usage: ./snapshot-btrfs command [options] <'//' | name [name...]>
     -s, --syslog       Write messages into the system log.
     -v, --verbose      Print info messages.
 
-      name             Mount point path, or empyt for all mount point.
+    name               Mount point path, or empyt for all mount point.
