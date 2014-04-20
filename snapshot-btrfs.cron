@@ -1,0 +1,9 @@
+#!/bin/sh
+PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+
+*/15 *  * * *     root    snapshot-btrfs auto-snapshot -q --syslog --label=frequent --keep=4
+10   *  * * *     root    snapshot-btrfs auto-snapshot -q --syslog --label=hourly   --keep=24
+20   0  * * *     root    snapshot-btrfs auto-snapshot -q --syslog --label=daily    --keep=7
+40   1  * * 6     root    snapshot-btrfs auto-snapshot -q --syslog --label=weekly   --keep=4
+50   2  1 * *     root    snapshot-btrfs auto-snapshot -q --syslog --label=monthly  --keep=12
+
