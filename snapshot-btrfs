@@ -1,0 +1,319 @@
+#!/bin/sh
+
+tmp_dir='/tmp/btrfs-snap'
+opt_syslog=''
+opt_dry_run=''
+opt_quiet=''
+opt_verbose=''
+opt_keep=''
+opt_label='regular'
+opt_prefix='snap'
+opt_sep='_'
+opt_createdirs=''
+opt_btrfsdir='.btrfs'
+opt_snapdir="$opt_btrfsdir/snapshot"
+opt_snap_chk='.auto-snapshot'
+
+opt_delim='@'
+opt_command='snapshot'
+
+SNAPSHOT_COUNT='0'
+DESTROY_COUNT='0'
+WARNING_COUNT='0'
+
+print_usage ()
+{
+    echo "Usage: $0 command [options] <'//' | name [name...]>
+
+    command            Is one of 
+                             auto-snapshot, snapshot ,delete-snapshot,clear-snapshot
+                             mark-auto, unmark-auto, show-auto-mark
+                            
+    -d, --debug        Print debugging messages.
+    -n, --dry-run      Print actions without actually doing anything.
+    -h, --help         Print this usage message.
+    -k, --keep=NUM     Keep NUM recent snapshots and destroy older snapshots.
+    -l, --label=LAB    LAB is usually 'hourly', 'daily', or 'monthly' (default
+                       is 'regular').
+    -p, --prefix=PRE   PRE is 'btrfs-auto-snap' by default.
+    -e, --name         Snapshot name. If specified, -l and -p are overridden
+                       and --keep is not considered.
+    -q, --quiet        Suppress warnings and notices at the console.
+    -s, --syslog       Write messages into the system log.
+    -v, --verbose      Print info messages.
+
+      name             Mount point path, or empyt for all mount point.
+" 
+}
+
+print_log () # level, message, ...
+{
+        LEVEL=$1
+        shift 1
+
+        case $LEVEL in
+                (eme*)
+                        test -n "$opt_syslog" && logger -t "$opt_prefix" -p daemon.emerge "$*"
+                        echo Emergency: "$*" 1>&2
+                        ;;
+                (ale*)
+                        test -n "$opt_syslog" && logger -t "$opt_prefix" -p daemon.alert "$*"
+                        echo Alert: "$*" 1>&2
+                        ;;
+                (cri*)
+                        test -n "$opt_syslog" && logger -t "$opt_prefix" -p daemon.crit "$*"
+                        echo Critical: "$*" 1>&2
+                        ;;
+                (err*)
+                        test -n "$opt_syslog" && logger -t "$opt_prefix" -p daemon.err "$*"
+                        echo Error: "$*" 1>&2
+                        ;;
+                (war*)
+                        test -n "$opt_syslog" && logger -t "$opt_prefix" -p daemon.warning "$*"
+                        test -z "$opt_quiet" && echo Warning: "$*" 1>&2
+                        WARNING_COUNT=$(( $WARNING_COUNT + 1 ))
+                        ;;
+                (not*)
+                        test -n "$opt_syslog" && logger -t "$opt_prefix" -p daemon.notice "$*"
+                        test -z "$opt_quiet" && echo "$*"
+                        ;;
+                (inf*)
+                        # test -n "$opt_syslog" && logger -t "$opt_prefix" -p daemon.info "$*"
+                        test -n "$opt_verbose" && echo "$*"
+                        ;;
+                (deb*)
+                        # test -n "$opt_syslog" && logger -t "$opt_prefix" -p daemon.debug "$*"
+                        test -n "$opt_debug" && echo Debug: "$*"
+                        ;;
+                (*)
+                        test -n "$opt_syslog" && logger -t "$opt_prefix" "$*"
+                        echo "$*" 1>&2
+                        ;;
+        esac
+}
+
+do_run () # [argv]
+{
+	local tmpfile=`mktemp -u --suffix .snap_run.tmp`
+        if [ -n "$opt_dry_run" ]
+        then
+                echo "... Running $*"
+                RC="$?"
+        else
+                eval $* 1>$tmpfile 2>&1
+                RC="$?"
+                if [ "$RC" -eq '0' ]
+                then
+                        print_log debug "$*"
+                else
+                        print_log warning "$* returned $RC"
+			cat $tmpfile
+                fi
+		rm $tmpfile
+        fi
+        return "$RC"
+}
+
+if [ "$#" -eq '0' ]; then
+    print_log error "Argument list empty"
+    exit 104
+fi
+
+opt_cmd="$1"; shift
+
+GETOPT=$(getopt \
+        --longoptions=label:,prefix:,verbose,debug:,dry-run,syslog,keep:,name:,quiet \
+        --options=p:dvl:nhsk:e:q \
+        -- "$@" ) \
+        || exit 128
+
+eval set -- ${GETOPT}
+
+while [ "$#" -gt '0' ]
+do
+        case "$1" in
+                (-q|--quiet)
+                        opt_quiet="1"
+                        shift 1
+                        ;;
+                (-e|--name)
+                        opt_name="$2"
+                        shift 2
+                        ;;
+                (-d|--debug)
+                        opt_debug='1'
+                        opt_quiet=''
+                        opt_verbose='1'
+                        shift 1
+                        ;;
+                (-n|--dry-run)
+                        opt_dry_run='1'
+                        shift 1
+                        ;;
+                (-p|--prefix)
+                        opt_prefix="$2"
+                        shift 2
+                        ;;
+                (-v|--verbose)
+                        opt_verbose='1'
+                        shift 1
+                        ;;
+                (-s|--syslog)
+                        opt_syslog='1'
+                        shift 1
+                        ;;
+                (-l|--label)
+                        opt_label="$2"
+                        shift 2
+                        ;;
+                (-k|--keep)
+                        opt_keep="$2"
+                        shift 2
+                        ;;
+                (-h)
+                        print_usage
+                        shift 1
+                        exit 
+                        ;;
+                (--)
+                        shift 1
+                        break
+                        ;;
+        esac
+done
+
+if [ -n "$opt_name" ]; then
+        opt_prefix="$opt_name"
+        opt_label=''
+        opt_keep=''
+fi
+
+# ISO style date; fifteen characters: YYYY-MM-DD-HHMM
+# On Solaris %H%M expands to 12h34.
+DATE=$(date +%F-%H%M)
+
+#trap "umount ${opt_mountpoint} ; rmdir '${tmp_dir}'" INT TERM EXIT
+
+BTR_MOUNT_POINTS=`mount |grep btrfs|awk '{print $3}'`
+
+if [ $# -eq 0 ] ;then 
+	TARGET_POINTS=$BTR_MOUNT_POINTS
+else
+	TARGET_POINTS="$@"
+	for p in $TARGET_POINTS; do
+		echo $BTR_MOUNT_POINTS|grep -q -w $p || { print_log error "mount point $p is not btrfs format."; exit 111; }
+	done
+fi
+
+#echo $TARGET_POINTS
+SNAPHEAD="$opt_prefix${opt_label:+$opt_sep}"
+SNAPNAME="$opt_prefix${opt_label:+$opt_sep$opt_label-$DATE}"
+SNAPGLOB="$opt_prefix${opt_label:+?$opt_label}????????????????"
+do_snapshot(){
+	local tp=$1
+	local newsnapdir=$tp/$opt_snapdir
+	local newsnap=$newsnapdir/$SNAPNAME
+	[ -d $newsnapdir ] || do_run "mkdir -p $newsnapdir"
+	print_log debug "snapshot${tp} -> $newsnap"
+	
+	if [ -e "$newsnap" ]; then
+		print_log warning "Snapshot or volume with this name already exists, skipping $tp"
+	else
+		print_log notice "snapshot ${tp}:`basename $newsnap`"
+		do_run "btrfs sub snapshot -r ${tp} $newsnap" \
+			&& SNAPSHOT_COUNT=$(( $SNAPSHOT_COUNT + 1 )) || WARNING_COUNT=$(( $WARNING_COUNT + 1 ))
+	fi
+
+	local KEEP="$opt_keep"
+	test -z "$KEEP" && continue
+	for oldsnap in `ls -1 "$newsnapdir" 2>/dev/null|sort -r`;do
+		[ -z "${oldsnap#$SNAPGLOB}" ] || continue
+		[ "$KEEP" -le '0' ] && do_delete_snapshot $tp $oldsnap
+		KEEP=$(( $KEEP - 1 ))
+	done
+}
+
+do_delete_snapshot(){
+	local tp=$1
+	local newsnapdir=$tp/$opt_snapdir
+	local newsnap=$newsnapdir/$SNAPNAME
+	[ -d $newsnapdir ] || return
+
+	local KEEP="$opt_keep"
+	test -z "$KEEP" && continue
+	for oldsnap in `ls -1 "$newsnapdir" 2>/dev/null|sort -r`;do
+		[ -z "${oldsnap#$SNAPGLOB}" ] || continue
+		[ "$KEEP" -le '0' ] && delete_snapshot $tp $oldsnap
+		KEEP=$(( $KEEP - 1 ))
+	done
+}
+
+delete_snapshot(){
+	local tp=$1
+	local oldsnap=$2
+	local newsnapdir=$tp/$opt_snapdir
+
+	print_log notice "Destroying $tp:$oldsnap"
+	do_run "btrfs sub delete $newsnapdir/$oldsnap"\
+	  && DESTROY_COUNT=$(( $DESTROY_COUNT + 1 )) || WARNING_COUNT=$(( $WARNING_COUNT + 1 ))
+}
+
+_snap_chk=${mp}/$opt_btrfsdir/$opt_snap_chk
+_snap_scope=all
+[ -n "$opt_label" ] && { _snap_chk=${_snap_chk}-${opt_label}; _snap_scope=$opt_label; }
+
+for mp in $TARGET_POINTS ; do
+	case "$opt_cmd" in
+	auto-snapshot)
+		[ -n "$opt_label" ] || { print_usage; exit 1; }
+		[ -f ${mp}/$opt_btrfsdir/$opt_snap_chk -o -f ${mp}/$opt_btrfsdir/${opt_snap_chk}-${opt_label} ] \
+			|| { print_log debug "skip $mp"; continue; }
+		do_snapshot $mp
+		;;
+	snapshot)
+		[ -n "$opt_label" ] || { print_usage; exit 1; }
+		do_snapshot $mp
+		do_delete_snapshot $mp
+		;;
+	delete-snapshot)
+		[ -n "$opt_label" ] || { print_usage; exit 1; }
+		do_delete_snapshot $mp
+		;;
+	clear-snapshot)
+		[ -n "$opt_label" ] && { opt_keep=0;do_delete_snapshot $mp; }
+		for oldsnap in `ls -1 $mp/$opt_snapdir 2>/dev/null`;do
+			delete_snapshot $mp `basename $oldsnap`
+		done
+		;;
+	mark-auto)
+		[ -f $_snap_chk ] && { print_log warn "skip!! $mp($_snap_scope) is marked as auto-snapshot.";continue; }
+		mkdir -p ${mp}/$opt_btrfsdir
+		print_log notice "mark $mp($_snap_scope) as auto-snapshot."
+		touch $_snap_chk
+		;;
+	unmark-auto)
+		[ -f $_snap_chk ] || { print_log warn "skip!! $mp($_snap_scope) does not make as auto-snapshot.";continue; }
+		print_log notice "unmark $mp($_snap_scope) as auto-snapshot."
+		rm -f $_snap_chk
+		;;
+	show-auto-mark)
+		echo -
+		echo $mp:
+		for ma in `ls -1 ${mp}/$opt_btrfsdir/${opt_snap_chk}* 2>/dev/null`; do
+			echo "  `basename $ma`"
+		done
+		;;
+	*)
+		print_usage
+		exit 1
+	esac
+done
+case "$opt_cmd" in
+auto-snapshot|snapshot|delete-snapshot)
+	print_log notice "$SNAPNAME," \
+		"$SNAPSHOT_COUNT created snapshots," \
+		"$DESTROY_COUNT destroyed snapshots," \
+		"$WARNING_COUNT warnings."
+	;;
+esac
+exit 0
