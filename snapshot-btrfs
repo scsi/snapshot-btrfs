@@ -258,11 +258,11 @@ delete_snapshot(){
 	  && DESTROY_COUNT=$(( $DESTROY_COUNT + 1 )) || WARNING_COUNT=$(( $WARNING_COUNT + 1 ))
 }
 
-_snap_chk=${mp}/$opt_btrfsdir/$opt_snap_chk
-_snap_scope=all
-[ -n "$opt_label" ] && { _snap_chk=${_snap_chk}-${opt_label}; _snap_scope=$opt_label; }
-
 for mp in $TARGET_POINTS ; do
+	_snap_chk=${mp}/$opt_btrfsdir/$opt_snap_chk
+	_snap_scope=all
+	[ -n "$opt_label" ] && { _snap_chk=${_snap_chk}-${opt_label}; _snap_scope=$opt_label; }
+
 	case "$opt_cmd" in
 	auto-snapshot)
 		[ -n "$opt_label" ] || { print_usage; exit 1; }
