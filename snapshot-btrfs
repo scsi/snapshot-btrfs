@@ -23,7 +23,7 @@ WARNING_COUNT='0'
 
 print_usage ()
 {
-    echo "Usage: $0 command [options] <'//' | name [name...]>
+    echo "Usage: $0 command [options] [name...]
 
     command            Is one of 
                              auto-snapshot, snapshot ,delete-snapshot,clear-snapshot
@@ -42,7 +42,7 @@ print_usage ()
     -s, --syslog       Write messages into the system log.
     -v, --verbose      Print info messages.
 
-      name             Mount point path, or empyt for all mount point.
+    name               Mount point path, or empyt for all mount point.
 " 
 }
 
