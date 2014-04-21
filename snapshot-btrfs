@@ -6,7 +6,7 @@ opt_dry_run=''
 opt_quiet=''
 opt_verbose=''
 opt_keep=''
-opt_label='regular'
+opt_label=''
 opt_prefix='snap'
 opt_sep='_'
 opt_createdirs=''
@@ -114,6 +114,55 @@ do_run () # [argv]
         return "$RC"
 }
 
+do_snapshot(){
+	local tp=$1
+	local newsnapdir=$tp/$opt_snapdir
+	local newsnap=$newsnapdir/$SNAPNAME
+	[ -d $newsnapdir ] || do_run "mkdir -p $newsnapdir"
+	print_log debug "snapshot${tp} -> $newsnap"
+	
+	if [ -e "$newsnap" ]; then
+		print_log warning "Snapshot or volume with this name already exists, skipping $tp"
+	else
+		print_log notice "snapshot ${tp}:`basename $newsnap`"
+		do_run "btrfs sub snapshot -r ${tp} $newsnap" \
+			&& SNAPSHOT_COUNT=$(( $SNAPSHOT_COUNT + 1 )) || WARNING_COUNT=$(( $WARNING_COUNT + 1 ))
+	fi
+
+	local KEEP="$opt_keep"
+	test -z "$KEEP" && continue
+	for oldsnap in `ls -1 "$newsnapdir" 2>/dev/null|sort -r`;do
+		[ -z "${oldsnap#$SNAPGLOB}" ] || continue
+		[ "$KEEP" -le '0' ] && do_delete_snapshot $tp $oldsnap
+		KEEP=$(( $KEEP - 1 ))
+	done
+}
+
+do_delete_snapshot(){
+	local tp=$1
+	local newsnapdir=$tp/$opt_snapdir
+	local newsnap=$newsnapdir/$SNAPNAME
+	[ -d $newsnapdir ] || return
+
+	local KEEP="$opt_keep"
+	test -z "$KEEP" && continue
+	for oldsnap in `ls -1 "$newsnapdir" 2>/dev/null|sort -r`;do
+		[ -z "${oldsnap#$SNAPGLOB}" ] || continue
+		[ "$KEEP" -le '0' ] && delete_snapshot $tp $oldsnap
+		KEEP=$(( $KEEP - 1 ))
+	done
+}
+
+delete_snapshot(){
+	local tp=$1
+	local oldsnap=$2
+	local newsnapdir=$tp/$opt_snapdir
+
+	print_log notice "Destroying $tp:$oldsnap"
+	do_run "btrfs sub delete $newsnapdir/$oldsnap"\
+	  && DESTROY_COUNT=$(( $DESTROY_COUNT + 1 )) || WARNING_COUNT=$(( $WARNING_COUNT + 1 ))
+}
+
 if [ "$#" -eq '0' ]; then
     print_log error "Argument list empty"
     exit 104
@@ -209,54 +258,6 @@ fi
 SNAPHEAD="$opt_prefix${opt_label:+$opt_sep}"
 SNAPNAME="$opt_prefix${opt_label:+$opt_sep$opt_label-$DATE}"
 SNAPGLOB="$opt_prefix${opt_label:+?$opt_label}????????????????"
-do_snapshot(){
-	local tp=$1
-	local newsnapdir=$tp/$opt_snapdir
-	local newsnap=$newsnapdir/$SNAPNAME
-	[ -d $newsnapdir ] || do_run "mkdir -p $newsnapdir"
-	print_log debug "snapshot${tp} -> $newsnap"
-	
-	if [ -e "$newsnap" ]; then
-		print_log warning "Snapshot or volume with this name already exists, skipping $tp"
-	else
-		print_log notice "snapshot ${tp}:`basename $newsnap`"
-		do_run "btrfs sub snapshot -r ${tp} $newsnap" \
-			&& SNAPSHOT_COUNT=$(( $SNAPSHOT_COUNT + 1 )) || WARNING_COUNT=$(( $WARNING_COUNT + 1 ))
-	fi
-
-	local KEEP="$opt_keep"
-	test -z "$KEEP" && continue
-	for oldsnap in `ls -1 "$newsnapdir" 2>/dev/null|sort -r`;do
-		[ -z "${oldsnap#$SNAPGLOB}" ] || continue
-		[ "$KEEP" -le '0' ] && do_delete_snapshot $tp $oldsnap
-		KEEP=$(( $KEEP - 1 ))
-	done
-}
-
-do_delete_snapshot(){
-	local tp=$1
-	local newsnapdir=$tp/$opt_snapdir
-	local newsnap=$newsnapdir/$SNAPNAME
-	[ -d $newsnapdir ] || return
-
-	local KEEP="$opt_keep"
-	test -z "$KEEP" && continue
-	for oldsnap in `ls -1 "$newsnapdir" 2>/dev/null|sort -r`;do
-		[ -z "${oldsnap#$SNAPGLOB}" ] || continue
-		[ "$KEEP" -le '0' ] && delete_snapshot $tp $oldsnap
-		KEEP=$(( $KEEP - 1 ))
-	done
-}
-
-delete_snapshot(){
-	local tp=$1
-	local oldsnap=$2
-	local newsnapdir=$tp/$opt_snapdir
-
-	print_log notice "Destroying $tp:$oldsnap"
-	do_run "btrfs sub delete $newsnapdir/$oldsnap"\
-	  && DESTROY_COUNT=$(( $DESTROY_COUNT + 1 )) || WARNING_COUNT=$(( $WARNING_COUNT + 1 ))
-}
 
 for mp in $TARGET_POINTS ; do
 	_snap_chk=${mp}/$opt_btrfsdir/$opt_snap_chk
