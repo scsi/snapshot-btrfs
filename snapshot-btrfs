@@ -243,7 +243,7 @@ DATE=$(date +%F-%H%M)
 
 #trap "umount ${opt_mountpoint} ; rmdir '${tmp_dir}'" INT TERM EXIT
 
-BTR_MOUNT_POINTS=`mount |grep btrfs|awk '{print $3}'`
+BTR_MOUNT_POINTS=`mount |grep btrfs|awk '{print $3}'|sort -u`
 
 if [ $# -eq 0 ] ;then 
 	TARGET_POINTS=$BTR_MOUNT_POINTS
